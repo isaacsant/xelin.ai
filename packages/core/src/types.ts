@@ -17,6 +17,10 @@ export const ProviderConfig = z.object({
   apiKey: z.string().optional(),
   /** AWS region for Bedrock */
   region: z.string().optional(),
+  /** Bearer token for Bedrock API Key auth (env: AWS_BEARER_TOKEN_BEDROCK) */
+  bearerToken: z.string().optional(),
+  /** Custom base URL (for Bedrock API Key endpoint, or any OpenAI-compatible proxy) */
+  baseUrl: z.string().optional(),
 });
 export type ProviderConfig = z.infer<typeof ProviderConfig>;
 

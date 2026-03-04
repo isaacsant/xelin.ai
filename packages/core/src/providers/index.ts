@@ -19,7 +19,11 @@ export function createAdapter(config: ProviderConfig): ProviderAdapter {
     case "perplexity":
       return new PerplexityAdapter(config.apiKey);
     case "bedrock":
-      return new BedrockAdapter(config.region);
+      return new BedrockAdapter({
+        region: config.region,
+        bearerToken: config.bearerToken,
+        baseUrl: config.baseUrl,
+      });
     default:
       throw new Error(`Unknown provider: ${config.provider}`);
   }
