@@ -3,7 +3,9 @@
   "private": true,
   "description": "Open-source AI visibility tracker with hallucination detection",
   "scripts": {
-    "build": "turbo build",
+    "build": "pnpm --filter @xelin/db build && pnpm --filter @xelin/core build && pnpm --filter @xelin/api build",
+    "start": "node packages/api/dist/index.js",
+    "build:all": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",
