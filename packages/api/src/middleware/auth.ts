@@ -1,5 +1,8 @@
 import { createMiddleware } from "hono/factory";
 import { createHash } from "crypto";
+import { eq, and } from "drizzle-orm";
+import { apiKeys } from "@xelin/db";
+import { getDb } from "../db.js";
 
 export type AuthEnv = {
   Variables: {
@@ -17,9 +20,23 @@ export const authMiddleware = createMiddleware<AuthEnv>(async (c, next) => {
   const apiKey = authHeader.slice(7); // Remove "Bearer "
   const keyHash = createHash("sha256").update(apiKey).digest("hex");
 
-  // TODO: Look up key in database, verify it's active, get userId
-  // For now, pass through with a placeholder
-  c.set("userId", "placeholder");
+  const db = getDb();
+  const [found] = await db
+    .select({ userId: apiKeys.userId })
+    .from(apiKeys)
+    .where(and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.isActive, true)))
+    .limit(1);
 
+  if (!found) {
+    return c.json({ error: "Invalid or inactive API key" }, 401);
+  }
+
+  // Update last used
+  await db
+    .update(apiKeys)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(apiKeys.keyHash, keyHash));
+
+  c.set("userId", found.userId);
   await next();
 });
