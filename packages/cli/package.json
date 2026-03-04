@@ -1,0 +1,25 @@
+{
+  "name": "@xelin/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "xelin": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xelin/core": "workspace:*",
+    "chalk": "^5.4.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.0.0",
+    "ora": "^8.2.0",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "typescript": "^5.7.0"
+  }
+}
