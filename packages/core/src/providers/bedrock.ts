@@ -25,9 +25,12 @@ export class BedrockAdapter implements ProviderAdapter {
     const token = opts?.bearerToken ?? process.env.AWS_BEARER_TOKEN_BEDROCK;
 
     if (token) {
-      // Bearer token mode: custom fetch replaces SigV4 auth with bearer token
+      // Bearer token mode: pass dummy IAM creds to satisfy SDK validation,
+      // then custom fetch replaces SigV4 auth with bearer token
       this.provider = createAmazonBedrock({
         region,
+        accessKeyId: "bearer-token-auth",
+        secretAccessKey: "bearer-token-auth",
         baseURL: opts?.baseUrl,
         fetch: async (url, init) => {
           const headers = new Headers(init?.headers);
