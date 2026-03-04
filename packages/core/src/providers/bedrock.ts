@@ -1,5 +1,4 @@
 import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
-import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModelV1 } from "ai";
 import type { ProviderAdapter } from "./base.js";
 
@@ -11,32 +10,36 @@ import type { ProviderAdapter } from "./base.js";
  *
  * 2. **Bearer token** (API Key) — uses AWS Bedrock API Key auth.
  *    Set via `bearerToken` config or `AWS_BEARER_TOKEN_BEDROCK` env var.
- *    Routes through Bedrock's OpenAI-compatible endpoint.
+ *    Injects Authorization header via custom fetch, bypassing SigV4.
  */
 export class BedrockAdapter implements ProviderAdapter {
   readonly name = "bedrock";
   private provider;
-  private useBearer: boolean;
-  private bearerProvider?: ReturnType<typeof createOpenAI>;
 
-  constructor(opts?: { region?: string; bearerToken?: string; baseUrl?: string }) {
+  constructor(opts?: {
+    region?: string;
+    bearerToken?: string;
+    baseUrl?: string;
+  }) {
     const region = opts?.region ?? process.env.AWS_REGION ?? "us-east-1";
     const token = opts?.bearerToken ?? process.env.AWS_BEARER_TOKEN_BEDROCK;
 
-    this.useBearer = !!token;
-
     if (token) {
-      // Bearer token mode: use OpenAI-compatible endpoint
-      const baseURL =
-        opts?.baseUrl ??
-        `https://bedrock-runtime.${region}.amazonaws.com/v1`;
-
-      this.bearerProvider = createOpenAI({
-        apiKey: token,
-        baseURL,
+      // Bearer token mode: custom fetch replaces SigV4 auth with bearer token
+      this.provider = createAmazonBedrock({
+        region,
+        baseURL: opts?.baseUrl,
+        fetch: async (url, init) => {
+          const headers = new Headers(init?.headers);
+          // Replace SigV4 Authorization with bearer token
+          headers.set("Authorization", `Bearer ${token}`);
+          // Remove SigV4-specific headers
+          headers.delete("x-amz-date");
+          headers.delete("x-amz-security-token");
+          headers.delete("x-amz-content-sha256");
+          return globalThis.fetch(url, { ...init, headers });
+        },
       });
-      // Still create standard provider as fallback
-      this.provider = createAmazonBedrock({ region });
     } else {
       // Standard IAM credentials mode
       this.provider = createAmazonBedrock({ region });
@@ -44,9 +47,6 @@ export class BedrockAdapter implements ProviderAdapter {
   }
 
   getModel(modelId: string): LanguageModelV1 {
-    if (this.useBearer && this.bearerProvider) {
-      return this.bearerProvider(modelId);
-    }
     return this.provider(modelId);
   }
 }
