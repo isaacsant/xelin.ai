@@ -203,8 +203,17 @@ export interface GeneratedPrompt {
 
 export interface XelinEngineConfig {
   providers: ProviderConfig[];
-  /** Model used for extraction/analysis (defaults to gpt-4o-mini) */
-  analysisModel?: ProviderConfig;
+  /**
+   * Model used for extraction/analysis (structured output parsing).
+   * If not set, auto-resolves a cheap model from your configured providers:
+   *   - openai → gpt-4o-mini
+   *   - anthropic → claude-haiku-4-5-20251001
+   *   - bedrock → anthropic.claude-3-haiku-20240307-v1:0
+   *   - google → gemini-2.0-flash
+   *   - perplexity → sonar
+   * Or set `analysisModel: "same"` to reuse each check's own provider/model.
+   */
+  analysisModel?: ProviderConfig | "same";
   /** Max concurrent LLM calls */
   concurrency?: number;
   /** Custom prompts (overrides auto-generation) */

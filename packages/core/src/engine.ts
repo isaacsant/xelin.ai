@@ -6,6 +6,7 @@ import {
   type VisibilityReport,
   type GeneratedPrompt,
   type ProviderConfig,
+  type ProviderName,
 } from "./types.js";
 import { createAdapter, type ProviderAdapter } from "./providers/index.js";
 import { extractMentions } from "./extractors/mention-extractor.js";
@@ -14,33 +15,61 @@ import { detectHallucinations } from "./analyzers/hallucination-detector.js";
 import { computeVisibilityReport } from "./analyzers/visibility-scorer.js";
 import { generatePrompts } from "./prompts/generator.js";
 
+/**
+ * Cheap/fast models for structured extraction, keyed by provider.
+ * These are used for parsing mentions, citations, and hallucinations
+ * from raw LLM responses — they don't need to be powerful, just fast.
+ */
+const ANALYSIS_MODEL_DEFAULTS: Record<ProviderName, string> = {
+  openai: "gpt-4o-mini",
+  anthropic: "claude-haiku-4-5-20251001",
+  bedrock: "anthropic.claude-3-haiku-20240307-v1:0",
+  google: "gemini-2.0-flash",
+  perplexity: "sonar",
+};
+
 export class XelinEngine {
   private adapters: Map<string, ProviderAdapter> = new Map();
   private config: XelinEngineConfig;
-  private analysisModel: LanguageModelV1;
+  private analysisModel: LanguageModelV1 | null = null;
+  private useSameModelForAnalysis: boolean;
 
   constructor(config: XelinEngineConfig) {
     this.config = config;
+    this.useSameModelForAnalysis = config.analysisModel === "same";
 
     // Initialize provider adapters
     for (const pc of config.providers) {
-      const key = `${pc.provider}:${pc.model}`;
       if (!this.adapters.has(pc.provider)) {
         this.adapters.set(pc.provider, createAdapter(pc));
       }
     }
 
-    // Setup analysis model (defaults to OpenAI gpt-4o-mini)
-    const analysisConfig = config.analysisModel ?? {
-      provider: "openai" as const,
-      model: "gpt-4o-mini",
-    };
-    if (!this.adapters.has(analysisConfig.provider)) {
-      this.adapters.set(analysisConfig.provider, createAdapter(analysisConfig));
+    // Resolve analysis model (unless "same" mode)
+    if (!this.useSameModelForAnalysis) {
+      this.analysisModel = this.resolveAnalysisModel(config);
     }
-    this.analysisModel = this.adapters
-      .get(analysisConfig.provider)!
-      .getModel(analysisConfig.model);
+  }
+
+  /**
+   * Resolves the analysis model with this priority:
+   * 1. Explicit `analysisModel` config
+   * 2. Auto-pick cheap model from the first configured provider
+   */
+  private resolveAnalysisModel(config: XelinEngineConfig): LanguageModelV1 {
+    if (config.analysisModel && config.analysisModel !== "same") {
+      // Explicit config
+      const ac = config.analysisModel;
+      if (!this.adapters.has(ac.provider)) {
+        this.adapters.set(ac.provider, createAdapter(ac));
+      }
+      return this.adapters.get(ac.provider)!.getModel(ac.model);
+    }
+
+    // Auto-resolve: use the cheapest model from the first configured provider
+    const firstProvider = config.providers[0];
+    const cheapModel = ANALYSIS_MODEL_DEFAULTS[firstProvider.provider];
+    return this.adapters.get(firstProvider.provider)!.getModel(cheapModel);
   }
 
   async runCheck(brand: BrandInfo): Promise<VisibilityReport> {
@@ -74,6 +103,14 @@ export class XelinEngine {
     return computeVisibilityReport(brandInfo, results);
   }
 
+  private getAnalysisModel(providerConfig: ProviderConfig): LanguageModelV1 {
+    if (this.useSameModelForAnalysis) {
+      // Use the same model that generated the response
+      return this.adapters.get(providerConfig.provider)!.getModel(providerConfig.model);
+    }
+    return this.analysisModel!;
+  }
+
   private async executeCheck(
     brand: BrandInfo,
     prompt: GeneratedPrompt,
@@ -91,18 +128,18 @@ export class XelinEngine {
     const latencyMs = Date.now() - start;
 
     // Collect all brand names to look for
-    const brandNames = [
-      brand.name,
-      ...brand.competitors.map((c) => c.name),
-    ];
+    const brandNames = [brand.name, ...brand.competitors.map((c) => c.name)];
+
+    // Resolve analysis model for this check
+    const analysisModel = this.getAnalysisModel(providerConfig);
 
     // Run extraction and analysis in parallel
     const [mentionResult, citationResult, hallucinationResult] =
       await Promise.all([
-        extractMentions(this.analysisModel, responseText, brandNames),
-        extractCitations(this.analysisModel, responseText, brand.domain),
+        extractMentions(analysisModel, responseText, brandNames),
+        extractCitations(analysisModel, responseText, brand.domain),
         detectHallucinations(
-          this.analysisModel,
+          analysisModel,
           responseText,
           brand.name,
           brand.facts
@@ -137,10 +174,7 @@ export class XelinEngine {
         try {
           results[currentIndex] = await fn(items[currentIndex]);
         } catch (error) {
-          console.error(
-            `Check failed for item ${currentIndex}:`,
-            error
-          );
+          console.error(`Check failed for item ${currentIndex}:`, error);
           throw error;
         }
       }
